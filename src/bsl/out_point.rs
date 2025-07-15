@@ -1,4 +1,4 @@
-use crate::{slice::read_slice, Parse, ParseResult, SResult};
+use crate::{slice::split_at_checked, Parse, ParseResult, SResult};
 
 /// The out point of a transaction input, identifying the previous output being spent
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,13 +15,8 @@ impl<'a> AsRef<[u8]> for OutPoint<'a> {
 impl<'a> Parse<'a> for OutPoint<'a> {
     /// Parse the out point from the given slice
     fn parse(slice: &'a [u8]) -> SResult<Self> {
-        let outpoint = read_slice(slice, 36usize)?;
-        Ok(ParseResult::new(
-            outpoint.remaining(),
-            OutPoint {
-                slice: outpoint.parsed_owned(),
-            },
-        ))
+        let (slice, remaining) = split_at_checked(slice, 36)?;
+        Ok(ParseResult::new(remaining, OutPoint { slice }))
     }
 }
 impl<'a> OutPoint<'a> {
@@ -108,8 +103,8 @@ mod test {
     #[test]
     fn parse_out_point() {
         let expected = OutPoint { slice: &[0u8; 36] };
-        assert_eq!(OutPoint::parse(&[1u8]), Err(Error::Needed(35)));
-        assert_eq!(OutPoint::parse(&[0u8; 35]), Err(Error::Needed(1)));
+        assert_eq!(OutPoint::parse(&[1u8]), Err(Error::MoreBytesNeeded));
+        assert_eq!(OutPoint::parse(&[0u8; 35]), Err(Error::MoreBytesNeeded));
         assert_eq!(
             OutPoint::parse(&[0u8; 36]),
             Ok(ParseResult::new_exact(expected.clone()))

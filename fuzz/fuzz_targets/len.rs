@@ -1,9 +1,12 @@
 #![no_main]
-use bitcoin_slices::bsl::Len;
-use bitcoin_slices::fuzzing::check;
+use bitcoin_slices::bsl::{parse_len, scan_len};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    let p = Len::parse(data);
-    check(data, p);
+    if let Ok(len) = parse_len(data) {
+        let mut consumed = 0;
+        let scan_len = scan_len(data, &mut consumed).unwrap();
+        assert_eq!(len.n(), scan_len);
+        assert_eq!(len.consumed(), consumed);
+    }
 });

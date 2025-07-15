@@ -44,6 +44,9 @@ pub struct SliceCache<K: Hash + PartialEq + Eq + core::fmt::Debug> {
     /// The cache is full, at least once it removed an older element to insert a new one.
     /// Obviously elements can still be inserted but they may remove older elements.
     full: bool,
+
+    #[cfg(feature = "prometheus")]
+    metric: prometheus::IntCounterVec,
 }
 
 mod private {
@@ -96,8 +99,17 @@ impl<K: Hash + PartialEq + Eq + core::fmt::Debug> SliceCache<K> {
             indexes: HashMap::new(),
             insertions: VecDeque::new(),
             full: false,
+
+            // TODO: metric name should be parametrized
+            #[cfg(feature = "prometheus")]
+            metric: prometheus::IntCounterVec::new(
+                prometheus::Opts::new("slice_cache", "Counters for cache Hit/Miss"),
+                &["event"],
+            )
+            .expect("statically defined"),
         }
     }
+
     /// Insert a value V in the cache, with key K
     /// returns the number of old entries removed
     pub fn insert<V: AsRef<[u8]>>(&mut self, key: K, value: &V) -> Result<usize, Error> {
@@ -114,9 +126,11 @@ impl<K: Hash + PartialEq + Eq + core::fmt::Debug> SliceCache<K> {
             // the element would not fit in the buffer, start again from the beginning,
             // but first remove any element in the buffer tail, otherwise inserted_range will not
             // overlap with the latest elements
-            let range = Range::from_begin_end(self.free_pointer, self.buffer.len())
-                .expect("the buffer is longer than free_pointer as ensured by the if clause");
-            removed += self.remove_range(&range);
+
+            if let Some(range) = Range::from_begin_end(self.free_pointer, self.buffer.len()) {
+                // we are removing only if the range is valid, it can happen `self.free_pointer == self.buffer.len()` and it that case we don't need to remove anything
+                removed += self.remove_range(&range);
+            }
             self.free_pointer = 0;
             self.full = true;
         }
@@ -139,21 +153,34 @@ impl<K: Hash + PartialEq + Eq + core::fmt::Debug> SliceCache<K> {
 
     /// Get the value as slice at key `K` if exist in the cache, `None` otherwise
     pub fn get(&self, key: &K) -> Option<&[u8]> {
-        let index = self.indexes.get(key)?;
+        let index = match self.indexes.get(key) {
+            Some(val) => {
+                #[cfg(feature = "prometheus")]
+                self.metric.with_label_values(&["hit"]).inc();
+
+                val
+            }
+            None => {
+                #[cfg(feature = "prometheus")]
+                self.metric.with_label_values(&["miss"]).inc();
+
+                return None;
+            }
+        };
 
         Some(&self.buffer[index.begin()..index.end()])
     }
 
     /// Return wether the cache contains the given key
     pub fn contains(&self, key: &K) -> bool {
-        self.indexes.get(key).is_some()
+        self.get(key).is_some()
     }
 
     #[cfg(feature = "redb")]
     /// Get the value at key `K` if exist in the cache, `None` otherwise
     pub fn get_value<'a, V: redb::RedbValue>(&'a self, key: &K) -> Option<V::SelfType<'a>> {
-        let index = self.indexes.get(key)?;
-        let value = V::from_bytes(&self.buffer[index.begin()..index.end()]);
+        let slice = self.get(key)?;
+        let value = V::from_bytes(slice);
 
         Some(value)
     }
@@ -161,6 +188,11 @@ impl<K: Hash + PartialEq + Eq + core::fmt::Debug> SliceCache<K> {
     /// Return the number of elements contained in the cache
     pub fn len(&self) -> usize {
         self.indexes.len()
+    }
+
+    /// Return the average size of the elements contained in the cache
+    pub fn avg(&self) -> f64 {
+        self.buffer.len() as f64 / self.indexes.len() as f64
     }
 
     /// Return wether the cache filled the inner buffer of serialized object and removed at least
@@ -186,6 +218,12 @@ impl<K: Hash + PartialEq + Eq + core::fmt::Debug> SliceCache<K> {
             }
         }
         removed
+    }
+
+    #[cfg(feature = "prometheus")]
+    /// Register the inner metric for hit/cache in the prometheus registry
+    pub fn register_metric(&self, r: &prometheus::Registry) -> Result<(), prometheus::Error> {
+        r.register(Box::new(self.metric.clone()))
     }
 }
 
@@ -238,6 +276,31 @@ mod tests {
         assert_eq!(cache.get(&k4), Some(&v4[..]));
         assert_eq!(cache.get(&k5), Some(&v5[..]));
         println!("{:?}", cache.insertions);
+    }
+
+    #[cfg(feature = "prometheus")]
+    #[test]
+    fn prometheus() {
+        use prometheus::Encoder;
+
+        let r = prometheus::default_registry();
+
+        let mut cache = SliceCache::new(10);
+        cache.register_metric(&r).unwrap();
+
+        let k1 = 0;
+        let v1 = [1, 2];
+        cache.insert(k1, &v1).unwrap();
+        assert_eq!(cache.get(&k1), Some(&v1[..]));
+        assert_eq!(cache.get(&1), None);
+
+        let mut buffer = Vec::<u8>::new();
+        let encoder = prometheus::TextEncoder::new();
+
+        let metric_families = r.gather();
+        encoder.encode(&metric_families, &mut buffer).unwrap();
+        let result = format!("{}", String::from_utf8(buffer.clone()).unwrap());
+        assert_eq!(result, "# HELP slice_cache Counters for cache Hit/Miss\n# TYPE slice_cache counter\nslice_cache{event=\"hit\"} 1\nslice_cache{event=\"miss\"} 1\n");
     }
 
     #[cfg(feature = "bitcoin")]
@@ -308,5 +371,18 @@ mod tests {
         let val = cache.get_value::<Transaction>(&txid).unwrap();
 
         assert_eq!(val.as_ref(), segwit_tx);
+    }
+
+    #[test]
+    fn insert_when_buffer_exactly_full() {
+        let mut cache = SliceCache::new(10);
+
+        let k1 = 0;
+        let v1 = [0; 10usize];
+        cache.insert(k1, &v1).unwrap();
+
+        let k2 = 1;
+        let v2 = [0];
+        cache.insert(k2, &v2).unwrap();
     }
 }

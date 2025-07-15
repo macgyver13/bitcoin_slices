@@ -1,6 +1,5 @@
-use crate::{slice::read_slice, Parse, ParseResult, SResult};
-
-use super::len::{parse_len, Len};
+use super::scan_len;
+use crate::{slice::split_at_checked, Parse, ParseResult, SResult};
 
 /// The Script, this type could be found in transaction outputs as `script_pubkey` or in transaction
 /// inputs as `script_sig`.
@@ -16,18 +15,16 @@ pub struct Script<'a> {
 impl<'a> Parse<'a> for Script<'a> {
     /// Parse a script from the slice.
     fn parse(slice: &'a [u8]) -> SResult<Self> {
-        let Len { consumed, n } = parse_len(slice)?;
-        let n = n as usize;
-        let remaining = &slice[consumed..];
-        Ok(read_slice(remaining, n)?.map(|s| {
-            ParseResult::new(
-                s.remaining(),
-                Script {
-                    slice: &slice[..consumed + n],
-                    from: consumed,
-                },
-            )
-        }))
+        let mut consumed = 0;
+        let n = scan_len(slice, &mut consumed)? as usize;
+        let (script_bytes, remaining) = split_at_checked(slice, consumed.saturating_add(n))?;
+        Ok(ParseResult::new(
+            remaining,
+            Script {
+                slice: script_bytes,
+                from: consumed,
+            },
+        ))
     }
 }
 impl<'a> Script<'a> {
@@ -61,7 +58,7 @@ mod test {
         check(&[1u8, 11], &[11u8]);
         check(&[3u8, 0, 1, 2], &[0u8, 1, 2]);
 
-        assert_eq!(Script::parse(&[1u8]), Err(Error::Needed(1)));
-        assert_eq!(Script::parse(&[100u8]), Err(Error::Needed(100)));
+        assert_eq!(Script::parse(&[1u8]), Err(Error::MoreBytesNeeded));
+        assert_eq!(Script::parse(&[100u8]), Err(Error::MoreBytesNeeded));
     }
 }

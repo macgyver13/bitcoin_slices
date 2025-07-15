@@ -120,31 +120,57 @@ cargo test
 
 ## Bench
 
+[Criterion](https://bheisler.github.io/criterion.rs/book/) is used for benching mainly because we are not required to use nightly, and it is also nicer.
+
 ```sh
-RUSTFLAGS='--cfg=bench' cargo +nightly bench --all-features
+cargo bench --all-features
+```
+
+To have compact results, similar to standard libtests launch with:
+
+```sh
+cargo bench --bench benches --all-features -- --output-format bencher
 ```
 
 ```sh
-test bsl::block::bench::block_deserialize            ... bench:     289,421 ns/iter (+/- 46,179)
-test bsl::block::bench::block_deserialize_bitcoin    ... bench:   2,719,666 ns/iter (+/- 459,186)
-test bsl::block::bench::block_sum_outputs            ... bench:     288,248 ns/iter (+/- 39,013)
-test bsl::block::bench::block_sum_outputs_bitcoin    ... bench:   2,607,791 ns/iter (+/- 321,212)
-test bsl::block::bench::find_tx                      ... bench:   1,012,297 ns/iter (+/- 6,278)
-test bsl::block::bench::find_tx_bitcoin              ... bench:   8,632,416 ns/iter (+/- 89,751)
-test bsl::block::bench::hash_block_txs               ... bench:   8,406,341 ns/iter (+/- 938,119)
-test bsl::block::bench::hash_block_txs_bitcoin       ... bench:  11,843,590 ns/iter (+/- 1,052,109)
-test bsl::block::bench::hash_block_txs_sha2          ... bench:   7,891,956 ns/iter (+/- 1,047,439)
-test bsl::block_header::bench::block_hash            ... bench:       1,399 ns/iter (+/- 205)
-test bsl::block_header::bench::block_hash_bitcoin    ... bench:       1,510 ns/iter (+/- 222)
-test bsl::transaction::bench::tx_deserialize         ... bench:          38 ns/iter (+/- 8)
-test bsl::transaction::bench::tx_deserialize_bitcoin ... bench:         219 ns/iter (+/- 30)
-test bsl::transaction::bench::txid                   ... bench:       2,185 ns/iter (+/- 166)
-test bsl::transaction::bench::txid_bitcoin           ... bench:       2,416 ns/iter (+/- 213)
-test bsl::transaction::bench::txid_sha2              ... bench:       2,085 ns/iter (+/- 216)
+test tx_deserialize/slices ... bench:                  13 ns/iter (+/- 0)
+test tx_deserialize/bitcoin ... bench:                203 ns/iter (+/- 4)
+
+test tx_id/slices_bitcoin_hashes ... bench:           180 ns/iter (+/- 1)
+test tx_id/slices_sha2 ... bench:                     152 ns/iter (+/- 0)
+test tx_id/bitcoin ... bench:                         232 ns/iter (+/- 2)
+
+test block_deserialize/slices ... bench:           104902 ns/iter (+/- 4190)
+test block_deserialize/bitcoin ... bench:         1177448 ns/iter (+/- 64613)
+test block_deserialize/slices_header ... bench:         0 ns/iter (+/- 0)
+test block_deserialize/bitcoin_header ... bench:       29 ns/iter (+/- 2)
+
+test block_sum_outputs/slices ... bench:           109554 ns/iter (+/- 3753)
+test block_sum_outputs/bitcoin ... bench:         1189417 ns/iter (+/- 49148)
+
+test hash_block_txs/slices ... bench:              742792 ns/iter (+/- 1269)
+test hash_block_txs/slices_sha2 ... bench:         650505 ns/iter (+/- 3008)
+test hash_block_txs/bitcoin ... bench:            1976693 ns/iter (+/- 12015)
+test hash_block_txs/bitcoin_block_ready ... bench: 797423 ns/iter (+/- 4884)
+
+test find_tx/slices ... bench:                     327972 ns/iter (+/- 2049)
+test find_tx/bitcoin ... bench:                   1548186 ns/iter (+/- 60774)
+
+test block_hash/slices ... bench:                     112 ns/iter (+/- 0)
+test block_hash/bitcoin ... bench:                    137 ns/iter (+/- 0)
+
+test len/scan_len ... bench:                            5 ns/iter (+/- 0)
+test len/parse_len ... bench:                           5 ns/iter (+/- 0)
+
+test script/parse ... bench:                           12 ns/iter (+/- 0)
+
+test witness/parse_single_witness ... bench:           18 ns/iter (+/- 0)
+test witness/parse_multiple_witnesses ... bench:       29 ns/iter (+/- 0)
+
 ```
 
-* benches ending with `_bitcoin` use `rust-bitcoin`
-* benches ending with `_sha2` use `sha2` lib instead of `bitcoin_hashes`
+* benches variants with `/bitcoin` use `rust-bitcoin`
+* benches ending with `/slices_sha2` use this lib and `sha2` lib instead of `bitcoin_hashes`
 
 ### Comparison against rust-bitcoin
 
@@ -177,6 +203,13 @@ Other target available in `fuzz/fuzz_targets`
 Minimize corpus:
 ```sh
 cargo +nightly fuzz cmin transaction
+```
+
+For NixOs there is a flake with a shell to setup the environment and run fuzzing.
+```sh
+cd fuzz
+nix develop -C $SHELL
+cargo fuzz run transaction
 ```
 
 ## Doc

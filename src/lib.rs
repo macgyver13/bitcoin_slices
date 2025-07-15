@@ -1,12 +1,8 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![deny(missing_docs)]
-#![cfg_attr(bench, feature(test))]
 #![cfg_attr(not(test), no_std)]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
-
-#[cfg(bench)]
-extern crate test;
 
 pub mod bsl;
 mod error;
@@ -27,7 +23,10 @@ pub use slice_cache::SliceCache;
 
 pub use error::Error;
 pub use parse_result::ParseResult;
+
+#[allow(deprecated)]
 pub use slice::read_slice;
+
 pub use visit::{EmptyVisitor, Parse, Visit, Visitor};
 
 /// Common result type throughout the lib
@@ -45,7 +44,7 @@ pub use redb;
 #[cfg(feature = "bitcoin")]
 pub use bitcoin;
 
-#[cfg(any(test, bench))]
+#[cfg(test)]
 pub mod test_common {
     use hex_lit::hex;
 
@@ -65,21 +64,5 @@ pub mod test_common {
         let mut ret = arr;
         ret.reverse();
         ret
-    }
-}
-
-/// Common functions used in fuzzing
-#[cfg(fuzzing)]
-pub mod fuzzing {
-    use crate::{Error, ParseResult};
-
-    /// Some checks on a succesfull parse
-    pub fn check<T: AsRef<[u8]>>(data: &[u8], p: Result<ParseResult<T>, Error>) {
-        if let Ok(p) = p {
-            let consumed = p.consumed();
-            assert_eq!(p.parsed().as_ref().len(), consumed);
-            assert_eq!(&data[..consumed], p.parsed().as_ref());
-            assert_eq!(&data[consumed..], p.remaining());
-        }
     }
 }
